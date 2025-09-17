@@ -5,42 +5,48 @@ import { NextResponse } from "next/server";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { email, password, role, name, department, gender, type } = body;
 
-    // Validate all fields
-    if (!name || !email || !password || !role || !department || !gender || !type) {
-      return NextResponse.json({ message: "All fields are required" }, { status: 400 });
+    // Ensure array
+    const users = Array.isArray(body) ? body : [body];
+    if (!users.length) {
+      return NextResponse.json({ message: "No users provided" }, { status: 400 });
     }
 
-    // Check if user already exists
-    const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) {
-      return NextResponse.json({ message: "User already exists" }, { status: 409 });
-    }
+    // 🔑 Prepare users
+    const preparedUsers = await Promise.all(
+      users.map(async (u) => {
+        const { email, password, role, name, department, gender, type } = u;
 
-    // Hash password
-    const hashed = await bcrypt.hash(password, 10);
+        if (!name || !email || !password || !role || !department || !gender || !type) {
+          throw new Error(`Missing fields for user: ${email || "unknown"}`);
+        }
 
-    // 🔑 Normalize enum fields
-    const prismaRole = role.toUpperCase();     // "student" → "STUDENT"
-    const prismaGender = gender.toUpperCase(); // "male" → "MALE"
-    const prismaType = type.replace("-", "_").toUpperCase();
-    // Create user
-    const user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        role: prismaRole,         // must match enum Role
-        department,
-        gender: prismaGender,     // must match enum Gender
-        type:prismaType,
-        hashedPassword: hashed,
-      },
+        const hashed = await bcrypt.hash(password, 10);
+
+        return {
+          name,
+          email,
+          role: role.toUpperCase(),
+          department,
+          gender: gender.toUpperCase(),
+          type: type.replace("-", "_").toUpperCase(),
+          hashedPassword: hashed,
+        };
+      })
+    );
+
+    // Bulk insert (skip duplicates to avoid errors)
+    const result = await prisma.user.createMany({
+      data: preparedUsers,
+      skipDuplicates: true, // ✅ avoids error if email already exists
     });
 
-    return NextResponse.json({ message: "User created successfully", user }, { status: 201 });
-  } catch (error) {
+    return NextResponse.json(
+      { message: "Users inserted successfully", count: result.count },
+      { status: 201 }
+    );
+  } catch (error: any) {
     console.error(error);
-    return NextResponse.json({ message: "Internal Server Error" }, { status: 500 });
+    return NextResponse.json({ message: error.message || "Internal Server Error" }, { status: 500 });
   }
 }
