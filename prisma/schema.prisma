@@ -1,0 +1,130 @@
+// schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql" // or "mysql"/"sqlite" depending on your DB
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String     @id @default(cuid())
+  name           String?
+  email          String     @unique
+  hashedPassword String?    @db.Text 
+  department String
+  gender     Gender 
+  type       Type @default(DAY_SCHOLAR)
+  role       Role     @default(STUDENT)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  accounts       Account[]
+  sessions       Session[]
+  complaintsAsStudent Complaint[]
+  attendenceAsStudent Attendence[]
+  hostelAsStudent     Hostel[]
+
+  @@map("users")
+}
+enum Gender{
+  MALE
+  FEMALE
+}
+enum Type{
+  HOSTELER
+  DAY_SCHOLAR
+}
+model Complaint {
+  id        String   @id @default(cuid())
+  photo     String
+  reason    String
+  createdAt DateTime @default(now())
+  complaintby String?
+
+  // Student info
+  studentId String
+  student   User   @relation(fields: [studentId], references: [id])
+}
+
+model Attendence {
+  id           String @id @default(cuid())
+  monthh       String
+  percentage   String
+  attendenceId String
+  attendence   User   @relation(fields: [attendenceId], references: [id])
+}
+
+model Timetabel {
+  id         Int      @id @default(autoincrement())
+  department String
+  year       String
+  semsister  String
+  period     String
+  createdAt  DateTime @default(now())
+
+  @@unique([department, year, semsister])
+}
+
+model Hostel {
+  id          Int      @id @default(autoincrement())
+  reason      String
+  village     String
+  number      String
+  photo       String
+  duration    String
+  approvedby String?
+  submit      Boolean  @default(false)
+  returned    Boolean  @default(false)
+  comeoutTime DateTime @default(now())
+  comeinTime  DateTime @default(now())
+  hostelId    String
+  hostel      User     @relation(fields: [hostelId], references: [id])
+}
+
+enum Role {
+  STUDENT
+  ADMIN
+  WARDEN
+  WATCHMAN
+  SUPER
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String  @map("user_id")
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique @map("session_token")
+  userId       String   @map("user_id")
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
