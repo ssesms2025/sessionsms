@@ -22,7 +22,7 @@ const DEFAULT_PHOTO = "https://via.placeholder.com/150.png?text=No+Photo";
 export default function AdminPage() {
   const [students, setStudents] = useState<any[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
-  const [reason, setReason] = useState("beard");
+  const [reason, setReason] = useState("Beard");
   const [photo, setPhoto] = useState("");
   const [manualEmail, setManualEmail] = useState("");
   const [scanning, setScanning] = useState(false);
