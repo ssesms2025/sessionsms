@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import axios from "axios";
 import toast from "react-hot-toast";
 import { useSession } from "next-auth/react";
-import { Bell } from "lucide-react";
+import { Bell, QrCode, X } from "lucide-react";
+
+const QrReader = dynamic(() => import("react-qr-reader"), { ssr: false });
 
 type HostelSubmission = {
   id: number;
@@ -18,6 +21,7 @@ type HostelSubmission = {
   hostel: {
     name: string;
     email: string;
+    department: string;
   };
 };
 
@@ -25,11 +29,19 @@ export default function WardenHostelPage() {
   const { data: session } = useSession();
   const [submissions, setSubmissions] = useState<HostelSubmission[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showComplaints, setShowComplaints] = useState(false);
 
-  // Map of refs for each row
-  const rowRefs = useRef<{ [key: number]: HTMLTableRowElement | null }>({});
+  /** QR Scanner */
+  const [scanning, setScanning] = useState(false);
+  const [scannedStudent, setScannedStudent] = useState<HostelSubmission[]>([]);
 
+  /** Filters */
+  const [search, setSearch] = useState("");
+  const [department, setDepartment] = useState("");
+  const [reason, setReason] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  /** Fetch Submissions */
   const fetchSubmissions = async () => {
     try {
       const res = await axios.get("/api/hostel/create");
@@ -45,33 +57,55 @@ export default function WardenHostelPage() {
     fetchSubmissions();
   }, []);
 
-  const handleSubmit = async (id: number) => {
+  /** Approve submission */
+  const handleApprove = async (id: number) => {
     try {
       await axios.put(`/api/hostel/${id}`, { submit: true });
-      toast.success("Submission approved");
+      
+      setSubmissions((prev) =>
+        prev.map((s) =>
+          s.id === id ? { ...s, submit: true, approvedby: session?.user?.name || "You" } : s
+        )
+      );
+
+      setScannedStudent((prev) =>
+        prev.map((s) =>
+          s.id === id ? { ...s, submit: true, approvedby: session?.user?.name || "You" } : s
+        )
+      );
+      toast.success("Approved!");
       fetchSubmissions();
     } catch {
       toast.error("Failed to approve");
     }
   };
 
-  // Fresh complaints = submissions not yet approved
-  const freshComplaints = submissions.filter((s) => !s.submit);
-
-  // Scroll to table row when clicking notification
-  const handleNotificationClick = (id: number) => {
-    setShowComplaints(false);
-    const row = rowRefs.current[id];
-    if (row) {
-      row.scrollIntoView({ behavior: "smooth", block: "center" });
-      row.classList.add("bg-yellow-100"); // Highlight
-      setTimeout(() => row.classList.remove("bg-yellow-100"), 2000);
-    }
+  /** Filter Logic */
+  const isInRange = (dateStr: string) => {
+    const d = new Date(dateStr);
+    if (!startDate && !endDate) return true;
+    if (startDate && !endDate) return d >= new Date(startDate);
+    if (!startDate && endDate) return d <= new Date(endDate);
+    return d >= new Date(startDate) && d <= new Date(endDate);
   };
+
+  const filteredSubmissions = submissions.filter(
+    (s) =>
+      (!search || s.hostel.name.toLowerCase().includes(search.toLowerCase())) &&
+      (!department || s.hostel.department === department) &&
+      (!reason || s.reason.toLowerCase().includes(reason.toLowerCase())) &&
+      isInRange(s.createdAt)
+  );
+
+  const toggleScanner = () => setScanning((prev) => !prev);
+
+  /** Fresh complaints for notification bell */
+  const freshComplaints = submissions.filter((s) => !s.submit);
+  const [showComplaints, setShowComplaints] = useState(false);
 
   return (
     <div className="p-6 min-h-screen bg-gray-50 relative">
-      {/* Header with Notification */}
+      {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-orange-600">Hostel Submissions</h1>
 
@@ -99,11 +133,7 @@ export default function WardenHostelPage() {
               ) : (
                 <ul className="divide-y divide-gray-200">
                   {freshComplaints.map((c) => (
-                    <li
-                      key={c.id}
-                      className="p-3 hover:bg-gray-50 cursor-pointer"
-                      onClick={() => handleNotificationClick(c.id)}
-                    >
+                    <li key={c.id} className="p-3 hover:bg-gray-50 cursor-pointer">
                       <p className="font-medium text-gray-800">{c.reason}</p>
                       <p className="text-xs text-gray-500">
                         {c.hostel.name} | {new Date(c.createdAt).toLocaleString()}
@@ -117,7 +147,128 @@ export default function WardenHostelPage() {
         </div>
       </div>
 
-      {/* Existing Table */}
+      {/* Filters */}
+      <div className="flex gap-2 items-center mb-4 overflow-x-auto whitespace-nowrap">
+        <input
+          type="text"
+          placeholder="Search Student..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="flex-shrink-0 px-3 py-2 border rounded-md focus:ring-2 focus:ring-orange-500"
+        />
+        <select
+          value={department}
+          onChange={(e) => setDepartment(e.target.value)}
+          className="flex-shrink-0 px-3 py-2 border rounded-md focus:ring-2 focus:ring-orange-500"
+        >
+          <option value="">Department</option>
+          <option value="CSE">CSE</option>
+          <option value="ECE">ECE</option>
+          <option value="EEE">EEE</option>
+          <option value="MECH">MECH</option>
+          <option value="CIVIL">CIVIL</option>
+        </select>
+        <input
+          type="text"
+          placeholder="Search Reason..."
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className="flex-shrink-0 px-3 py-2 border rounded-md focus:ring-2 focus:ring-orange-500"
+        />
+        <input
+          type="date"
+          value={startDate}
+          onChange={(e) => setStartDate(e.target.value)}
+          className="flex-shrink-0 px-3 py-2 border rounded-md focus:ring-2 focus:ring-orange-500"
+        />
+        <input
+          type="date"
+          value={endDate}
+          onChange={(e) => setEndDate(e.target.value)}
+          className="flex-shrink-0 px-3 py-2 border rounded-md focus:ring-2 focus:ring-orange-500"
+        />
+        <button
+          onClick={() => {
+            setSearch("");
+            setDepartment("");
+            setReason("");
+            setStartDate("");
+            setEndDate("");
+          }}
+          className="flex-shrink-0 px-3 py-2 bg-orange-200 hover:bg-orange-400 rounded-md"
+        >
+          Reset
+        </button>
+      </div>
+
+      {/* QR Scanner */}
+      <div className="mb-4">
+        <button
+          onClick={toggleScanner}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
+            scanning ? "bg-red-600 text-white" : "bg-orange-500 text-white"
+          }`}
+        >
+          {scanning ? <X /> : <QrCode />} {scanning ? "Close Scanner" : "Scan Student"}
+        </button>
+
+        {scanning && (
+          <div className="w-full h-80 border rounded-lg overflow-hidden mt-2">
+            <QrReader
+              delay={100}
+              onError={(err) => console.error(err)}
+              onScan={(data) => {
+                if (data) {
+                  const studentSubmissions = submissions.filter(
+                    (s) => s.hostel.email === data
+                  );
+                  if (studentSubmissions.length) {
+                    setScannedStudent(studentSubmissions);
+                    setScanning(false);
+                    toast.success("Student data fetched!");
+                  } else {
+                    toast.error("No student found");
+                  }
+                }
+              }}
+              style={{ width: "100%", height: "100%" }}
+            />
+          </div>
+        )}
+
+        {scannedStudent.length > 0 && (
+          <div className="mt-4 p-4 border rounded-lg bg-white shadow-lg">
+            <h3 className="font-semibold text-lg text-orange-600">
+              Scanned Student Submissions
+            </h3>
+            {scannedStudent.map((s) => (
+              <div
+                key={s.id}
+                className="flex justify-between items-center border-b py-2"
+              >
+                <div>
+                  <p>
+                    <strong>Reason:</strong> {s.reason}
+                  </p>
+                  <p>
+                    <strong>Village:</strong> {s.village}
+                  </p>
+                </div>
+                {!s.submit && (
+                  <button
+                    onClick={() => handleApprove(s.id)}
+                    className="bg-orange-500 text-white px-3 py-1 rounded hover:bg-orange-600"
+                  >
+                    Approve
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Table */}
       {loading ? (
         <p>Loading...</p>
       ) : (
@@ -135,15 +286,8 @@ export default function WardenHostelPage() {
               </tr>
             </thead>
             <tbody>
-              {submissions.map((s) => (
-                <tr
-                  key={s.id}
-                  ref={(el) => {
-                    rowRefs.current[s.id] = el; // ✅ just assign, don't return anything
-                  }}
-                  className="border-t bg-white hover:bg-orange-50 transition"
-                >
-
+              {filteredSubmissions.map((s) => (
+                <tr key={s.id} className="border-t bg-white hover:bg-orange-50 transition">
                   <td className="px-4 py-2">{s.hostel.name}</td>
                   <td className="px-4 py-2">{s.hostel.email}</td>
                   <td className="px-4 py-2">{s.reason}</td>
@@ -160,7 +304,7 @@ export default function WardenHostelPage() {
                       <span className="text-green-600 font-semibold">Submitted</span>
                     ) : (
                       <button
-                        onClick={() => handleSubmit(s.id)}
+                        onClick={() => handleApprove(s.id)}
                         className="bg-orange-500 text-white px-3 py-1 rounded hover:bg-orange-600"
                       >
                         Approve

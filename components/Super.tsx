@@ -43,6 +43,7 @@ interface HostelSubmission {
 export default function AdminHostelPage() {
   const { data: session } = useSession();
   const [activeTab, setActiveTab] = useState<"users" | "hostel">("users");
+  const [scannedStudent, setScannedStudent] = useState<User | null>(null);
 
   /*** USERS PAGE STATES ***/
   const [users, setUsers] = useState<User[]>([]);
@@ -63,7 +64,7 @@ export default function AdminHostelPage() {
     if (activeTab !== "users") return;
     if (!session) return;
 
-    const token = session?.user?.id; // using session data as identifier/token substitute
+    const token = session?.user?.id;
 
     fetch(`/api/admin/users?email=${search}`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -153,7 +154,6 @@ export default function AdminHostelPage() {
         return;
       }
 
-      // Update local state
       setUsers((prev) =>
         prev.map((u) =>
           u.id === userId
@@ -177,8 +177,9 @@ export default function AdminHostelPage() {
   /*** TOGGLE SCANNER ***/
   const toggleScanner = () => setScanning((prev) => !prev);
 
+
   return (
-    <div className="p-4 max-w-6xl mx-auto space-y-6">
+    <div className="p-4 max-w-7xl mx-auto space-y-6">
       {/* Tabs */}
       <div className="flex justify-center gap-4">
         <button
@@ -210,7 +211,7 @@ export default function AdminHostelPage() {
           </h1>
 
           {/* Filters */}
-          <div className="flex gap-2 overflow-x-auto pb-2 snap-x">
+          <div className="flex gap-2 overflow-x-auto pb-2 snap-x items-center">
             <input
               type="text"
               placeholder="🔍 Roll No..."
@@ -254,10 +255,26 @@ export default function AdminHostelPage() {
               onChange={(e) => setEndDate(e.target.value)}
               className="flex-shrink-0 px-3 py-2 border rounded-md focus:ring-2 focus:ring-purple-500 snap-start"
             />
+            <button
+              onClick={() => {
+                setSearch("");
+                setDepartment("");
+                setReason("");
+                setStartDate("");
+                setEndDate("");
+              }}
+              className="px-3 py-2 bg-purple-200 hover:bg-purple-400 rounded-md text-sm"
+            >
+              Reset
+            </button>
           </div>
 
-          {/* Attendance QR Scanner */}
-          <div className="rounded-xl border p-4 bg-white shadow-sm mt-4">
+          {/* QR Scanner */}
+          <div
+            className={`rounded-xl border p-4 mt-4 ${
+              scanning ? "border-purple-500" : "border-gray-200"
+            } bg-white shadow-sm`}
+          >
             <h2 className="font-semibold text-purple-700 mb-2 text-sm sm:text-base">
               Attendance QR Scanner
             </h2>
@@ -274,11 +291,74 @@ export default function AdminHostelPage() {
             {scanning && (
               <div className="w-full h-80 border rounded-lg overflow-hidden mt-2">
                 <QrReader
-                  delay={200}
+                  delay={100}
                   onError={(err) => console.error(err)}
-                  onScan={(data) => console.log("Scanned:", data)}
+                  onScan={async (data) => {
+                    if (data) {
+                      try {
+                        const token = session?.user?.id;
+                        const res = await fetch(
+                          `/api/admin/users?email=${encodeURIComponent(data)}`,
+                          { headers: { Authorization: `Bearer ${token}` } }
+                        );
+
+                        if (!res.ok) {
+                          toast.error("Failed to fetch student details");
+                          return;
+                        }
+
+                        const result = await res.json();
+                        const student = Array.isArray(result)
+                          ? result[0]
+                          : result;
+
+                        if (student) {
+                          setScannedStudent(student);
+                          toast.success("Student data fetched!");
+                          
+                          setScanning(false);
+                        } else {
+                          toast.error("No student found");
+                        }
+                      } catch (err) {
+                        console.error("Error fetching scanned student:", err);
+                        toast.error("Error fetching data");
+                      }
+                    }
+                  }}
                   style={{ width: "100%", height: "100%" }}
                 />
+              </div>
+            )}
+
+            {scannedStudent && (
+              <div className="mt-4 p-4 border rounded-lg bg-gray-50 shadow-lg">
+                <h3 className="font-semibold text-lg text-purple-700">
+                  Scanned Student
+                </h3>
+                <p>
+                  <strong>Name:</strong> {scannedStudent.name}
+                </p>
+                <p>
+                  <strong>Email:</strong> {scannedStudent.email}
+                </p>
+                <p>
+                  <strong>Department:</strong> {scannedStudent.department}
+                </p>
+
+                <h4 className="mt-2 font-medium">Complaints:</h4>
+                {scannedStudent.complaintsAsStudent.length > 0 ? (
+                  <ul className="list-disc ml-5">
+                    {scannedStudent.complaintsAsStudent.map((c) => (
+                      <li key={c.id}>
+                        {c.reason} (
+                        {new Date(c.createdAt).toLocaleDateString()})
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span className="text-gray-500">No complaints 🎉</span>
+                )}
               </div>
             )}
           </div>
@@ -296,56 +376,31 @@ export default function AdminHostelPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers.length > 0 ? (
-                  filteredUsers.map((u) => (
-                    <tr
-                      key={u.id}
-                      className="border-b hover:bg-gray-50 sm:text-sm text-xs"
-                    >
-                      <td className="p-2">{u.name}</td>
-                      <td className="p-2 break-words">{u.email}</td>
-                      <td className="p-2">{u.department}</td>
-                      <td className="p-2">
-                        {u.complaintsAsStudent.length > 0 ? (
-                          <ul className="list-disc ml-5">
-                            {u.complaintsAsStudent
-                              .filter((c) => isInRange(c.createdAt))
-                              .map((c) => (
-                                <li
-                                  key={c.id}
-                                  className="flex items-center gap-2"
-                                >
-                                  <span className="font-medium">{c.reason}</span>{" "}
-                                  ({new Date(c.createdAt).toLocaleDateString()})
-                                  <button
-                                    onClick={() =>
-                                      handleDeleteComplaint(u.id, c.id)
-                                    }
-                                    className="text-red-600 hover:text-red-800 ml-2"
-                                  >
-                                    <Trash />
-                                  </button>
-                                </li>
-                              ))}
-                          </ul>
-                        ) : (
-                          <span className="text-gray-500">
-                            No complaints 🎉
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td
-                      colSpan={4}
-                      className="p-4 text-center text-gray-500 italic"
-                    >
-                      No users found
+                {filteredUsers.map((u) => (
+                  <tr key={u.id} className="border-b hover:bg-gray-50 odd:bg-white even:bg-gray-50">
+                    <td className="p-2">{u.name}</td>
+                    <td className="p-2 break-words">{u.email}</td>
+                    <td className="p-2">{u.department}</td>
+                    <td className="p-2">
+                      <ul className="list-disc ml-5 space-y-1">
+                        {u.complaintsAsStudent
+                          .filter((c) => isInRange(c.createdAt))
+                          .map((c) => (
+                            <li key={c.id} className="flex items-center gap-2">
+                              <span className="font-medium">{c.reason}</span>
+                              ({new Date(c.createdAt).toLocaleDateString()})
+                              <button
+                                onClick={() => handleDeleteComplaint(u.id, c.id)}
+                                className="text-red-600 hover:text-red-800 ml-2"
+                              >
+                                <Trash size={16} />
+                              </button>
+                            </li>
+                          ))}
+                      </ul>
                     </td>
                   </tr>
-                )}
+                ))}
               </tbody>
             </table>
           </div>
@@ -353,114 +408,79 @@ export default function AdminHostelPage() {
       )}
 
       {activeTab === "hostel" && (
-        <>
-          <h1 className="text-2xl font-bold mb-4 text-center text-orange-600">
-            Hostel Submissions - View Only
-          </h1>
-
-          {/* Filter buttons */}
-          <div className="mb-4 flex justify-center gap-4 flex-wrap">
-            <button
-              className={`px-4 py-2 rounded ${
-                filterSubmit === "all"
-                  ? "bg-orange-600 text-white"
-                  : "bg-gray-200"
-              }`}
-              onClick={() => setFilterSubmit("all")}
+        <div className="space-y-4">
+          <div className="flex gap-2 items-center">
+            <span>Filter by Submitted:</span>
+            <select
+              value={filterSubmit.toString()}
+              onChange={(e) =>
+                setFilterSubmit(
+                  e.target.value === "all"
+                    ? "all"
+                    : e.target.value === "true"
+                    ? true
+                    : false
+                )
+              }
+              className="px-3 py-2 border rounded-md focus:ring-2 focus:ring-orange-500"
             >
-              All
-            </button>
-            <button
-              className={`px-4 py-2 rounded ${
-                filterSubmit === true
-                  ? "bg-orange-600 text-white"
-                  : "bg-gray-200"
-              }`}
-              onClick={() => setFilterSubmit(true)}
-            >
-              Submitted
-            </button>
-            <button
-              className={`px-4 py-2 rounded ${
-                filterSubmit === false
-                  ? "bg-orange-600 text-white"
-                  : "bg-gray-200"
-              }`}
-              onClick={() => setFilterSubmit(false)}
-            >
-              Not Submitted
-            </button>
+              <option value="all">All</option>
+              <option value="true">Submitted</option>
+              <option value="false">Not Submitted</option>
+            </select>
           </div>
 
           {loadingHostel ? (
-            <p className="text-center mt-8">Loading...</p>
-          ) : filteredSubmissions.length === 0 ? (
-            <p className="text-center text-gray-600 mt-8">
-              No submissions to display
-            </p>
+            <p>Loading hostel submissions...</p>
           ) : (
-            <div className="overflow-x-auto bg-white border border-gray-300 rounded-lg shadow-md">
-              <table className="min-w-full text-left text-sm text-gray-700">
-                <thead className="bg-orange-100 text-orange-700 uppercase text-xs">
+            <div className="overflow-x-auto border rounded-lg bg-white p-4 shadow">
+              <table className="min-w-full table-auto border">
+                <thead className="bg-orange-600 text-white">
                   <tr>
-                    <th className="px-4 py-2">Name</th>
-                    <th className="px-4 py-2">Photo</th>
-                    <th className="px-4 py-2">Email</th>
-                    <th className="px-4 py-2">Number</th>
-                    <th className="px-4 py-2">Submitted</th>
-                    <th className="px-4 py-2">Returned</th>
-                    <th className="px-4 py-2">Come Out Time</th>
-                    <th className="px-4 py-2">Come In Time</th>
+                    <th className="p-2">Student</th>
+                    <th className="p-2">Number</th>
+                    <th className="p-2">Photo</th>
+                    <th className="p-2">Submitted</th>
+                    <th className="p-2">Returned</th>
+                    <th className="p-2">Come Out</th>
+                    <th className="p-2">Come In</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredSubmissions.map((s) => (
-                    <tr key={s.id} className="border-t hover:bg-orange-50">
-                      <td className="px-4 py-2">{s.hostel.name}</td>
-                      <td className="px-4 py-2">
+                    <tr key={s.id} className="border-b hover:bg-gray-50 odd:bg-white even:bg-gray-50">
+                      <td className="p-2">{s.hostel.name}</td>
+                      <td className="p-2">{s.number}</td>
+                      <td className="p-2">
                         <img
-                          src={s.photo || "/default-profile.png"}
-                          alt={s.hostel.name}
-                          className="w-12 h-12 rounded-full object-cover border"
+                          src={s.photo}
+                          alt="hostel submission"
+                          className="w-16 h-16 object-cover rounded-lg border hover:scale-105 transition-transform"
                         />
                       </td>
-                      <td className="px-4 py-2">{s.hostel.email}</td>
-                      <td className="px-4 py-2">{s.number}</td>
-                      <td className="px-4 py-2">
+                      <td className="p-2">
                         {s.submit ? (
-                          <span className="text-green-600 font-semibold">
-                            Yes
-                          </span>
+                          <span className="text-green-600 font-semibold">Yes</span>
                         ) : (
                           <span className="text-red-600 font-semibold">No</span>
                         )}
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="p-2">
                         {s.returned ? (
-                          <span className="text-green-600 font-semibold">
-                            Yes
-                          </span>
+                          <span className="text-green-600 font-semibold">Yes</span>
                         ) : (
                           <span className="text-red-600 font-semibold">No</span>
                         )}
                       </td>
-                      <td className="px-4 py-2">
-                        {s.comeoutTime
-                          ? new Date(s.comeoutTime).toLocaleString()
-                          : "-"}
-                      </td>
-                      <td className="px-4 py-2">
-                        {s.comeinTime
-                          ? new Date(s.comeinTime).toLocaleString()
-                          : "-"}
-                      </td>
+                      <td className="p-2">{s.comeoutTime || "-"}</td>
+                      <td className="p-2">{s.comeinTime || "-"}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );

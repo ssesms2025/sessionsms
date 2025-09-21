@@ -178,7 +178,7 @@ export default function AdminPage() {
       </div>
 
       {/* Desktop nav (always visible) */}
-      <div className="hidden sm:flex fixed top-14 right-6 bg-purple-200 text-purple-900 shadow-lg py-2 px-4 gap-4 rounded-xl z-40">
+      <div className="hidden sm:flex fixed top-15 right-6 bg-purple-200 text-purple-900 shadow-lg py-2 px-4 gap-4 rounded-xl z-40">
         <button
           onClick={() => router.push("/users")}
           className="flex items-center gap-2 px-3 py-2 rounded hover:bg-purple-300"
